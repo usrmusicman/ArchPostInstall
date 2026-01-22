@@ -1,0 +1,60 @@
+#!/bin/sh
+
+# Archlinux with Plasma KDE base
+BASE_SYSTEM="adw-gtk-theme discover distrobox fastfetch ffmpegthumbs flatpak gamemode gamescope gst-libav gst-plugin-libcamera gst-plugin-pipewire gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly gst-plugin-va haruna icoutils ifuse kio-admin kio-gdrive kio-zeroconf ksshaskpass lib32-gamemode lib32-gst-plugins-base lib32-gst-plugins-base-libs lib32-gst-plugins-good lib32-mangohud lib32-mesa-demos lib32-mesa-utils lib32-pipewire-v4l2 libappimage libdvdcss libgpod libimobiledevice libva-utils lshw man-db man-pages mangohud multilib-devel openssh pipewire-ffado pipewire-libcamera pipewire-v4l2 pkgstats podman podman-compose protontricks pulsemixer qpwgraph realtime-privileges rtirq sane sane-airscan scx-scheds scx-tools soundfont-fluid spectacle steam system-config-printer ufw unarchiver unrar unzip umu-launcher vim vim-runtime vulkan-tools wacomtablet wget wireless-regdb wireplumber xdg-user-dirs-gtk yt-dlp zip zram-generator"
+
+# <<-- Functions -->>
+
+# Make sure to run the script as root
+if [[ "$USER" == "root" ]]; then
+
+	# Enable ntsync for wine
+	install -Dm644 kernel/10-ntsync.conf /etc/modules-load.d/10-ntsync.conf
+
+	# ZRAM Generator Config
+    install -Dm644 system/zram-generator.conf /etc/systemd/zram-generator.conf
+
+	# Install flathub as a user
+	install -Dm755 user/Desktop/enable_flathub_as_user /etc/skel/Desktop/enable_flathub_as_user
+
+	# Install nvidia driver toggle script
+	install -Dm755 user/Desktop/nvidia_driver_toggle /etc/skel/Desktop/nvidia_driver_toggle
+
+	# Install pipewire-jack package before the base-system
+	pacman -Syy --noconfirm lib32-pipewire-jack pipewire-jack
+
+	# Install the linux-zen kernel
+	pacman -Syy --noconfirm linux-zen linux-zen-headers
+
+	# Install system packages
+	pacman -Syy --noconfirm $BASE_SYSTEM
+
+	# Run final system package update
+	pacman -Suu --noconfirm
+
+	# Enable system services
+    systemctl enable scx_loader.service
+    systemctl enable rtirq.service
+    systemctl enable rtirq-resume.service
+
+	# Make vim the default system-wide editor
+	echo "EDITOR=/usr/bin/vim" > /etc/environment
+
+	# Make the fluid soundfont the default for midi playback
+	echo "SOUND_FONT=/usr/share/soundfonts/FluidR3_GM.sf2" > /etc/conf.d/fluidsynth
+
+	# Add user to groups
+	gpasswd -a $USER cups
+	gpasswd -a $USER flatpak
+	gpasswd -a $USER fwupd
+	gpasswd -a $USER gamemode
+	gpasswd -a $USER games
+	gpasswd -a $USER realtime
+	gpasswd -a $USER sddm
+
+else
+
+	# Check if the user is root
+    echo "Please be root to run this script..."
+
+fi
