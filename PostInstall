@@ -1,60 +1,95 @@
-#!/bin/sh
+#!/bin/bash
 
-# Archlinux with Plasma KDE base
-BASE_SYSTEM="adw-gtk-theme cpupower discover distrobox fastfetch ffmpegthumbs flatpak flatpak-kcm gamemode gamescope gst-libav gst-plugin-libcamera gst-plugin-pipewire gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly gst-plugin-va haruna icoutils ifuse kio-admin kio-gdrive kio-zeroconf ksshaskpass lib32-gamemode lib32-gst-plugins-base lib32-gst-plugins-base-libs lib32-gst-plugins-good lib32-mangohud lib32-mesa-demos lib32-mesa-utils lib32-pipewire-v4l2 libappimage libdvdcss libgpod libimobiledevice libva-utils lshw man-db man-pages mangohud multilib-devel net-tools openssh pipewire-ffado pipewire-libcamera pipewire-v4l2 pkgstats podman podman-compose protontricks pulsemixer qpwgraph realtime-privileges rtirq sane sane-airscan scx-scheds scx-tools soundfont-fluid spectacle steam system-config-printer ufw unarchiver unrar unzip umu-launcher vim vim-runtime vulkan-tools wacomtablet wget wireless-regdb wireplumber xdg-user-dirs-gtk yt-dlp zip zram-generator"
+# Configuration
+BASE_SYSTEM="adw-gtk-theme cpupower discover distrobox fastfetch ffmpegthumbs flatpak flatpak-kcm gamemode gamescope gst-libav gst-plugin-libcamera gst-plugin-pipewire gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly gst-plugin-va haruna icoutils ifuse kio-admin kio-gdrive kio-zeroconf ksshaskpass lib32-gamemode lib32-gst-plugins-base lib32-gst-plugins-base-libs lib32-gst-plugins-good lib32-mangohud lib32-mesa-demos lib32-mesa-utils lib32-pipewire-v4l2 libappimage libdvdcss libgpod libimobiledevice libva-utils lshw man-db man-pages mangohud multilib-devel net-tools openssh pipewire-ffado pipewire-libcamera pipewire-v4l2 pkgstats podman podman-compose protontricks pulsemixer qpwgraph realtime-privileges sane sane-airscan scx-scheds scx-tools soundfont-fluid spectacle steam system-config-printer ufw unarchiver unrar unzip umu-launcher vim vim-runtime vulkan-tools wacomtablet wget wireless-regdb wireplumber xdg-user-dirs-gtk yt-dlp zip zram-generator"
 
-# <<-- Functions -->>
+AMDGPU_DRV="lib32-libva-mesa-driver lib32-opencl-mesa lib32-vulkan-radeon libva-mesa-driver opencl-mesa rocm-opencl-runtime rocminfo vulkan-radeon"
+INTELGPU_DRV="gst-plugin-qsv intel-compute-runtime intel-media-driver lib32-opencl-mesa lib32-vulkan-intel opencl-mesa vpl-gpu-rt vulkan-intel"
+NVIDIAGPU_DRV="lib32-nvidia-cg-toolkit lib32-nvidia-utils lib32-opencl-nvidia libva-nvidia-driver libvdpau-va-gl nvidia-cg-toolkit nvidia-container-toolkit nvidia-open-dkms nvidia-prime nvidia-settings nvidia-utils nvtop opencl-nvidia vdpauinfo"
+NVIDIAGPU_DRV_NVK="lib32-opencl-mesa lib32-vulkan-nouveau opencl-mesa vulkan-nouveau"
 
-# Make sure to run the script as root
-if [[ "$USER" == "root" ]]; then
+NV_SERVICES=(
+    nvidia-hibernate.service
+    nvidia-persistenced.service
+    nvidia-powerd.service
+    nvidia-resume.service
+    nvidia-suspend.service
+    nvidia-suspend-then-hibernate.service
+)
 
-	# Enable ntsync for wine
-	install -Dm644 kernel/10-ntsync.conf /etc/modules-load.d/10-ntsync.conf
+usage() {
+    echo "Usage: sudo $0 [-b] [-a | -i | -n | -o] [-f]"
+    echo "  -b : Install BASE_SYSTEM packages & configs"
+    echo "  -a : AMD Drivers"
+    echo "  -i : Intel Drivers"
+    echo "  -n : NVIDIA Proprietary (Enables NV services)"
+    echo "  -o : NVIDIA NVK/FOSS (Disables NV services)"
+    echo "  -f : Enable Flathub (User-specific)"
+    exit 1
+}
 
-	# ZRAM Generator Config
+# Variables
+DRIVERS=""
+INSTALL_BASE=false
+MODE=""
+ENABLE_FLATHUB=false
+
+# Parse flags
+while getopts "bainof" opt; do
+    case $opt in
+        b) INSTALL_BASE=true ;;
+        a) DRIVERS=$AMDGPU_DRV; MODE="AMD" ;;
+        i) DRIVERS=$INTELGPU_DRV; MODE="INTEL" ;;
+        n) DRIVERS=$NVIDIAGPU_DRV; MODE="NVIDIA_PROB" ;;
+        o) DRIVERS=$NVIDIAGPU_DRV_NVK; MODE="NVIDIA_NVK" ;;
+        f) ENABLE_FLATHUB=true ;;
+        *) usage ;;
+    esac
+done
+
+if [[ $OPTIND -eq 1 ]]; then usage; fi
+if [[ $EUID -ne 0 ]]; then echo "Must be root."; exit 1; fi
+
+REAL_USER=${SUDO_USER:-$USER}
+
+# --- 1. Base System Installation ---
+if [ "$INSTALL_BASE" = true ]; then
+    echo "Installing Zen Kernel and Base System..."
+    pacman -Syy --noconfirm linux-zen linux-zen-headers lib32-pipewire-jack pipewire-jack
+    pacman -S --noconfirm $BASE_SYSTEM
+
+    # Files & Configs
+    install -Dm644 kernel/10-ntsync.conf /etc/modules-load.d/10-ntsync.conf
     install -Dm644 system/zram-generator.conf /etc/systemd/zram-generator.conf
 
-	# Install flathub as a user
-	install -Dm755 user/Desktop/enable_flathub_as_user /etc/skel/Desktop/enable_flathub_as_user
-
-	# Install nvidia driver toggle script
-	install -Dm755 user/Desktop/nvidia_driver_toggle /etc/skel/Desktop/nvidia_driver_toggle
-
-	# Install pipewire-jack package before the base-system
-	pacman -Syy --noconfirm lib32-pipewire-jack pipewire-jack
-
-	# Install the linux-zen kernel
-	pacman -Syy --noconfirm linux-zen linux-zen-headers
-
-	# Install system packages
-	pacman -Syy --noconfirm $BASE_SYSTEM
-
-	# Run final system package update
-	pacman -Suu --noconfirm
-
-	# Enable system services
+    # Environment & Global Settings
     systemctl enable scx_loader.service
-    systemctl enable rtirq.service
-    systemctl enable rtirq-resume.service
+    #systemctl disable sddm.service # Only uncomment this option if you want a seemless SteamOS session
+    echo "EDITOR=/usr/bin/vim" > /etc/environment
+    echo "SOUND_FONT=/usr/share/soundfonts/FluidR3_GM.sf2" > /etc/conf.d/fluidsynth
 
-	# Make vim the default system-wide editor
-	echo "EDITOR=/usr/bin/vim" > /etc/environment
-
-	# Make the fluid soundfont the default for midi playback
-	echo "SOUND_FONT=/usr/share/soundfonts/FluidR3_GM.sf2" > /etc/conf.d/fluidsynth
-
-	# Add user to groups
-	gpasswd -a $USER cups
-	gpasswd -a $USER flatpak
-	gpasswd -a $USER fwupd
-	gpasswd -a $USER gamemode
-	gpasswd -a $USER games
-	gpasswd -a $USER realtime
-	gpasswd -a $USER sddm
-
-else
-
-	# Check if the user is root
-    echo "Please be root to run this script..."
-
+    # Permissions for audio/gaming/rakarrack
+    for grp in audio flatpak fwupd gamemode games realtime video; do
+        gpasswd -a "$REAL_USER" "$grp"
+    done
 fi
+
+# --- 2. Driver Installation ---
+if [ -n "$DRIVERS" ]; then
+    echo "Installing $MODE Drivers..."
+    pacman -S --noconfirm $DRIVERS
+
+    if [[ "$MODE" == "NVIDIA_PROB" ]]; then
+        for svc in "${NV_SERVICES[@]}"; do systemctl enable "$svc"; done
+    elif [[ "$MODE" == "NVIDIA_NVK" ]]; then
+        for svc in "${NV_SERVICES[@]}"; do systemctl disable "$svc" 2>/dev/null; done
+    fi
+fi
+
+# --- 3. Flathub User Logic ---
+if [ "$ENABLE_FLATHUB" = true ]; then
+    echo "Enabling Flathub for $REAL_USER..."
+    sudo -u "$REAL_USER" flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
+
+echo "Operation complete. Reboot recommended."
