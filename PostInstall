@@ -69,7 +69,7 @@ if [ "$INSTALL_BASE" = true ]; then
     echo "SOUND_FONT=/usr/share/soundfonts/FluidR3_GM.sf2" > /etc/conf.d/fluidsynth
 
     # Permissions for audio/gaming/rakarrack
-    for grp in audio flatpak fwupd gamemode games realtime video; do
+    for grp in audio flatpak fwupd gamemode games input realtime video; do
         gpasswd -a "$REAL_USER" "$grp"
     done
 fi
