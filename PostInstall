@@ -30,6 +30,7 @@ usage() {
 
 # Variables
 DRIVERS=""
+REMOVE_DRIVERS=""  # New variable to track conflicts
 INSTALL_BASE=false
 MODE=""
 ENABLE_FLATHUB=false
@@ -40,8 +41,16 @@ while getopts "bainof" opt; do
         b) INSTALL_BASE=true ;;
         a) DRIVERS=$AMDGPU_DRV; MODE="AMD" ;;
         i) DRIVERS=$INTELGPU_DRV; MODE="INTEL" ;;
-        n) DRIVERS=$NVIDIAGPU_DRV; MODE="NVIDIA_PROB" ;;
-        o) DRIVERS=$NVIDIAGPU_DRV_NVK; MODE="NVIDIA_NVK" ;;
+        n)
+            DRIVERS=$NVIDIAGPU_DRV
+            REMOVE_DRIVERS=$NVIDIAGPU_DRV_NVK  # Mark NVK for removal [cite: 2, 4]
+            MODE="NVIDIA_PROB"
+            ;;
+        o)
+            DRIVERS=$NVIDIAGPU_DRV_NVK
+            REMOVE_DRIVERS=$NVIDIAGPU_DRV      # Mark Proprietary for removal [cite: 1, 4]
+            MODE="NVIDIA_NVK"
+            ;;
         f) ENABLE_FLATHUB=true ;;
         *) usage ;;
     esac
@@ -76,13 +85,35 @@ fi
 
 # --- 2. Driver Installation ---
 if [ -n "$DRIVERS" ]; then
+
+    # NEW: Handle removal of conflicting drivers if set
+    if [ -n "$REMOVE_DRIVERS" ]; then
+        echo "Checking for conflicting drivers to remove..."
+        # Filter list to only installed packages
+        TO_REMOVE=$(pacman -Qq $REMOVE_DRIVERS 2>/dev/null)
+
+        if [ -n "$TO_REMOVE" ]; then
+            echo "Removing detected conflicts (skipping dependency checks for swap): $TO_REMOVE"
+            # -Rdd is required here. It forces removal even if Steam depends on these drivers.
+            # We strictly avoid -s (recursive) here to prevent breaking other system deps.
+            pacman -Rdd --noconfirm $TO_REMOVE
+        fi
+    fi
+
     echo "Installing $MODE Drivers..."
     pacman -S --noconfirm $DRIVERS
 
+    # Service Management
     if [[ "$MODE" == "NVIDIA_PROB" ]]; then
-        for svc in "${NV_SERVICES[@]}"; do systemctl enable "$svc"; done
+        # Enable services if they exist (they might not if install failed)
+        for svc in "${NV_SERVICES[@]}"; do
+            systemctl enable "$svc" 2>/dev/null || true
+        done
     elif [[ "$MODE" == "NVIDIA_NVK" ]]; then
-        for svc in "${NV_SERVICES[@]}"; do systemctl disable "$svc" 2>/dev/null; done
+        # Cleanup any lingering symlinks (The unit files themselves are gone if removal succeeded)
+        for svc in "${NV_SERVICES[@]}"; do
+            systemctl disable "$svc" 2>/dev/null || true
+        done
     fi
 fi
 
